@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <title>Wifey Alter-Type Quiz — 40Q Hybrid</title>
+  <script>
+    window.tailwind = { config: { darkMode: "class" } };
+  </script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    input[type="range"] { width: 100%; }
+    .tick { font-size: 10px; opacity: .7 }
+    @media print { .no-print { display: none !important; } .print-break { break-after: page; } }
+  </style>
+</head>
+<body class="bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100">
+  <div id="root"></div>
+
+  <!-- Netlify Forms -->
+  <form name="quiz-submission" data-netlify="true" netlify-honeypot="bot-field" hidden>
+    <input type="text" name="alterName" />
+    <input type="text" name="answersJson" />
+    <input type="text" name="outcomeJson" />
+    <input type="text" name="userAgent" />
+    <input type="text" name="timestamp" />
+    <input type="text" name="version" value="alter-type-v2-40q" />
+    <input type="text" name="bot-field" />
+  </form>
+
+  <script type="text/babel">
+    document.documentElement.classList.add('dark');
+
+    // ----------- MODEL KEYS -----------
+    const CREATURES = ["Monster","Human","Ghost","Angel","Demon","Machine","Mirror"];
+    const ROLES = ["Protector","Archivist","Creative","Thinker","Trauma Holder","Caretaker","Performer","Gatekeeper"];
+    const ALIGNMENTS = ["Love-Driven","Logic-Driven","Chaos-Driven","Truth-Driven","Survival-Driven","Balance-Driven","Rebellion-Driven"];
+
+    // Helper: scale weight normalize 1..5 -> 0..1
+    const scaleWeight = (v)=> Math.max(0, Math.min(5, Number(v)||0) - 1) / 4;
+
+    // ----------- QUESTIONS (40) -----------
+    // Each item: { id, phase, type: 'choice'|'scale', prompt, options? (choice), to? (scale target) }
+    const Q = [
+      // ===== Phase 1: Creature (12) =====
+      {id:"c1", phase:"Creature", type:"choice", prompt:"When people misunderstand you, what rises first?",
+        options:[
+          {label:"Cold analysis", to:"Machine"},
+          {label:"An emotional wave", to:"Human"},
+          {label:"Protective heat", to:"Monster"},
+          {label:"I vanish inward", to:"Ghost"},
+          {label:"I soften and comfort", to:"Angel"},
+          {label:"Sharp humor or bite", to:"Demon"},
+          {label:"I reflect them back", to:"Mirror"},
+        ]},
+      {id:"c2", phase:"Creature", type:"scale", to:"Chaos-Driven", prompt:"Chaos feels like oxygen to me."}, // alignment-ish influence but treat as Creature via Demon/Monster later? We'll map to Monster via scale alias below
+      {id:"c3", phase:"Creature", type:"choice", prompt:"My presence tends to feel to others like:",
+        options:[
+          {label:"Comfort and warmth", to:"Human"},
+          {label:"Intensity in the air", to:"Monster"},
+          {label:"A soft light", to:"Angel"},
+          {label:"A shadow at the edge", to:"Ghost"},
+          {label:"A mirror—whatever you need", to:"Mirror"},
+          {label:"A precise instrument", to:"Machine"},
+          {label:"A spark that could burn", to:"Demon"},
+        ]},
+      {id:"c4", phase:"Creature", type:"scale", to:"Ghost", prompt:"When emotions peak, I fade into the background."},
+      {id:"c5", phase:"Creature", type:"choice", prompt:"If I took a symbolic form, I’d be closest to:",
+        options:[
+          {label:"Storm", to:"Monster"},
+          {label:"Flame", to:"Demon"},
+          {label:"Mirror", to:"Mirror"},
+          {label:"Light", to:"Angel"},
+          {label:"Flesh and heartbeat", to:"Human"},
+          {label:"Mist", to:"Ghost"},
+          {label:"Clockwork", to:"Machine"},
+        ]},
+      {id:"c6", phase:"Creature", type:"scale", to:"Machine", prompt:"I trust pattern and logic more than instinct."},
+      {id:"c7", phase:"Creature", type:"choice", prompt:"People usually see me as:",
+        options:[
+          {label:"Calm", to:"Human"},
+          {label:"Dangerous", to:"Monster"},
+          {label:"Distant", to:"Ghost"},
+          {label:"Gentle", to:"Angel"},
+          {label:"Intense", to:"Demon"},
+          {label:"Exact", to:"Machine"},
+          {label:"Adaptive", to:"Mirror"},
+        ]},
+      {id:"c8", phase:"Creature", type:"scale", to:"Angel", prompt:"It feels natural to soothe others even at my own expense."},
+      {id:"c9", phase:"Creature", type:"choice", prompt:"What do you do with pain most often?",
+        options:[
+          {label:"Transmute it into power", to:"Demon"},
+          {label:"Carry it quietly", to:"Ghost"},
+          {label:"Turn it into protection", to:"Monster"},
+          {label:"Study it until it makes sense", to:"Machine"},
+          {label:"Offer it kindness", to:"Angel"},
+          {label:"Use it to connect", to:"Human"},
+          {label:"Mirror it back to teach", to:"Mirror"},
+        ]},
+      {id:"c10", phase:"Creature", type:"scale", to:"Monster", prompt:"When danger arrives, something fierce wakes up in me."},
+      {id:"c11", phase:"Creature", type:"scale", to:"Mirror", prompt:"I naturally adapt my style to whoever is in front of me."},
+      {id:"c12", phase:"Creature", type:"scale", to:"Human", prompt:"I feel grounded in ordinary human routines (food, meds, rest, chores)."},
+
+      // ===== Phase 2: Role (14) =====
+      {id:"r1", phase:"Role", type:"choice", prompt:"When someone inside panics, I:", options:[
+        {label:"Contain and shield", to:"Protector"},
+        {label:"Carry it so they can breathe", to:"Trauma Holder"},
+        {label:"Fix the problem", to:"Thinker"},
+        {label:"Redirect through expression", to:"Creative"},
+        {label:"Document and map it", to:"Archivist"},
+        {label:"Soothe and nurture", to:"Caretaker"},
+        {label:"Keep the outside smooth", to:"Performer"},
+        {label:"Manage who fronts", to:"Gatekeeper"},
+      ]},
+      {id:"r2", phase:"Role", type:"scale", to:"Protector", prompt:"I scan rooms for exits, threats, and leverage points."},
+      {id:"r3", phase:"Role", type:"choice", prompt:"What are you praised for most often?", options:[
+        {label:"Protecting people", to:"Protector"},
+        {label:"Remembering details", to:"Archivist"},
+        {label:"Creating beauty", to:"Creative"},
+        {label:"Making sense of chaos", to:"Thinker"},
+        {label:"Holding the heavy feelings", to:"Trauma Holder"},
+        {label:"Caring for others", to:"Caretaker"},
+        {label:"Carrying the social mask", to:"Performer"},
+        {label:"Keeping order inside", to:"Gatekeeper"},
+      ]},
+      {id:"r4", phase:"Role", type:"scale", to:"Archivist", prompt:"Timelines, logs, or receipts calm me."},
+      {id:"r5", phase:"Role", type:"choice", prompt:"When asked for help, I usually:", options:[
+        {label:"Jump in physically", to:"Protector"},
+        {label:"Offer comfort first", to:"Caretaker"},
+        {label:"Ask clarifying questions", to:"Thinker"},
+        {label:"Create a channel for expression", to:"Creative"},
+        {label:"Start documenting", to:"Archivist"},
+        {label:"Absorb what they can’t hold", to:"Trauma Holder"},
+        {label:"Handle the social piece", to:"Performer"},
+        {label:"Decide who fronts next", to:"Gatekeeper"},
+      ]},
+      {id:"r6", phase:"Role", type:"scale", to:"Thinker", prompt:"I prefer evidence over vibes when choosing a path."},
+      {id:"r7", phase:"Role", type:"scale", to:"Creative", prompt:"Expression (music, art, style, writing) is my best tool."},
+      {id:"r8", phase:"Role", type:"choice", prompt:"Where do you naturally stand in a group crisis?", options:[
+        {label:"Front line, taking hits", to:"Protector"},
+        {label:"Back line, holding weight", to:"Trauma Holder"},
+        {label:"Middle, coordinating", to:"Gatekeeper"},
+        {label:"Side, observing & logging", to:"Archivist"},
+        {label:"Inside, calming the system", to:"Caretaker"},
+        {label:"Up front, talking to people", to:"Performer"},
+        {label:"At the whiteboard, planning", to:"Thinker"},
+        {label:"On the stage, channeling it", to:"Creative"},
+      ]},
+      {id:"r9", phase:"Role", type:"scale", to:"Gatekeeper", prompt:"I notice who’s close to the front and who needs to step back."},
+      {id:"r10", phase:"Role", type:"scale", to:"Performer", prompt:"I can keep a convincing social mask even when I’m hurting."},
+      {id:"r11", phase:"Role", type:"scale", to:"Caretaker", prompt:"I automatically check for meds, water, rest, food, and softness."},
+      {id:"r12", phase:"Role", type:"choice", prompt:"What do you protect people from more?", options:[
+        {label:"Threats and harm", to:"Protector"},
+        {label:"Overwhelm and pain", to:"Trauma Holder"},
+        {label:"Exposure or chaos", to:"Gatekeeper"},
+        {label:"Silence & isolation", to:"Performer"},
+      ]},
+      {id:"r13", phase:"Role", type:"scale", to:"Trauma Holder", prompt:"I’m built to carry emotional weight others can’t."},
+      {id:"r14", phase:"Role", type:"scale", to:"Protector", prompt:"Control feels safer than trust to me."},
+
+      // ===== Phase 3: Alignment (14) =====
+      {id:"a1", phase:"Alignment", type:"choice", prompt:"I’m driven most by:", options:[
+        {label:"Love", to:"Love-Driven"},
+        {label:"Logic", to:"Logic-Driven"},
+        {label:"Change", to:"Chaos-Driven"},
+        {label:"Truth", to:"Truth-Driven"},
+        {label:"Survival", to:"Survival-Driven"},
+        {label:"Balance", to:"Balance-Driven"},
+        {label:"Defiance", to:"Rebellion-Driven"},
+      ]},
+      {id:"a2", phase:"Alignment", type:"scale", to:"Truth-Driven", prompt:"I value honesty even when it hurts."},
+      {id:"a3", phase:"Alignment", type:"choice", prompt:"If I must choose, I’d rather be:", options:[
+        {label:"Right", to:"Logic-Driven"},
+        {label:"Kind", to:"Love-Driven"},
+        {label:"Free", to:"Rebellion-Driven"},
+      ]},
+      {id:"a4", phase:"Alignment", type:"scale", to:"Love-Driven", prompt:"All plans mean nothing without love at the center."},
+      {id:"a5", phase:"Alignment", type:"choice", prompt:"I rebel most when I feel:", options:[
+        {label:"Controlled", to:"Rebellion-Driven"},
+        {label:"Ignored", to:"Chaos-Driven"},
+        {label:"Misunderstood", to:"Truth-Driven"},
+        {label:"Trapped", to:"Survival-Driven"},
+        {label:"Out of sync", to:"Balance-Driven"},
+      ]},
+      {id:"a6", phase:"Alignment", type:"scale", to:"Chaos-Driven", prompt:"Disruption is sometimes the only way forward."},
+      {id:"a7", phase:"Alignment", type:"choice", prompt:"Pain is mostly:", options:[
+        {label:"Punishment", to:"Survival-Driven"},
+        {label:"Lesson", to:"Truth-Driven"},
+        {label:"Fuel", to:"Chaos-Driven"},
+        {label:"Noise", to:"Balance-Driven"},
+        {label:"Signal", to:"Logic-Driven"},
+      ]},
+      {id:"a8", phase:"Alignment", type:"scale", to:"Logic-Driven", prompt:"If I understand it, I can steer it."},
+      {id:"a9", phase:"Alignment", type:"scale", to:"Balance-Driven", prompt:"I instinctively try to harmonize competing needs."},
+      {id:"a10", phase:"Alignment", type:"choice", prompt:"When I love someone, I first:", options:[
+        {label:"Protect", to:"Survival-Driven"},
+        {label:"Fix", to:"Logic-Driven"},
+        {label:"Challenge", to:"Truth-Driven"},
+        {label:"Worship", to:"Love-Driven"},
+        {label:"Test", to:"Rebellion-Driven"},
+      ]},
+      {id:"a11", phase:"Alignment", type:"scale", to:"Rebellion-Driven", prompt:"Rules are suggestions when they harm the real goal."},
+      {id:"a12", phase:"Alignment", type:"scale", to:"Survival-Driven", prompt:"Staying alive and stable comes before everything."},
+      {id:"a13", phase:"Alignment", type:"choice", prompt:"Between peace and proof, I choose:", options:[
+        {label:"Peace", to:"Balance-Driven"},
+        {label:"Proof", to:"Truth-Driven"},
+      ]},
+      {id:"a14", phase:"Alignment", type:"scale", to:"Love-Driven", prompt:"I can forgive without forgetting."},
+    ];
+
+    // NOTE: c2 was initially alignment-toned; remap to Creature weights via Monster/Demon.
+    // We'll alias "Chaos-Driven" scale in c2 to boost Monster + Demon equally.
+    const CREATURE_ALIASES = { "Chaos-Driven": ["Monster","Demon"] };
+
+    // ----------- STATE & SCORING -----------
+    const STORAGE_KEY = "alter_type_quiz_v2_40q";
+
+    function usePersistentState(defaultValue) {
+      const [state,setState]=React.useState(()=>{
+        try{ const raw=localStorage.getItem(STORAGE_KEY); return raw?JSON.parse(raw):defaultValue; }catch{ return defaultValue; }
+      });
+      React.useEffect(()=>{ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch{} },[state]);
+      return [state,setState];
+    }
+
+    function phaseList(phase){ return Q.filter(q=>q.phase===phase); }
+
+    function computeOutcome(answers){
+      const result = {
+        Creature:null, Role:null, Alignment:null,
+        counts:{ Creature:{}, Role:{}, Alignment:{} }
+      };
+
+      const addScore = (bucket, key, w)=> {
+        const c = result.counts[bucket];
+        c[key] = (c[key]||0) + w;
+      };
+
+      for (const q of Q) {
+        const a = answers[q.id];
+        if (a==null) continue;
+
+        if (q.type==="choice") {
+          // 'a' stores target key (e.g., "Protector", "Machine")
+          addScore(q.phase, a, 1);
+        } else if (q.type==="scale") {
+          const w = scaleWeight(a); // 0..1
+          if (q.phase==="Creature" && CREATURE_ALIASES[q.to]) {
+            for (const t of CREATURE_ALIASES[q.to]) addScore("Creature", t, w/CREATURE_ALIASES[q.to].length);
+          } else {
+            addScore(q.phase, q.to, w);
+          }
+        }
+      }
+
+      // Pick max
+      const pickMax = (obj, fallback)=>{
+        let best=null, bestVal=-Infinity;
+        for (const [k,v] of Object.entries(obj)) {
+          if (v>bestVal){ best=k; bestVal=v; }
+        }
+        if (!best) return fallback;
+        return best;
+      };
+
+      result.Creature = pickMax(result.counts.Creature, CREATURES[0]);
+      result.Role = pickMax(result.counts.Role, ROLES[0]);
+      result.Alignment = pickMax(result.counts.Alignment, ALIGNMENTS[0]);
+
+      return result;
+    }
+
+    function blurbForOutcome(o){
+      if (!o.Creature || !o.Role || !o.Alignment) return "";
+      const id = `${o.Creature} ${o.Role} — ${o.Alignment}`;
+      const core = {
+        "Monster Protector": "Fierce shield. You intercept harm and turn chaos into boundaries.",
+        "Monster Archivist": "You hold the brutal truths, forging memory into armor.",
+        "Human Caretaker": "You ground the system in warmth, routine, and real-world care.",
+        "Ghost Archivist": "A quiet historian, stitching edges of memory from the periphery.",
+        "Angel Caretaker": "A balm in a body—safety, softness, and repair.",
+        "Demon Protector": "You weaponize pain into precision lines no one may cross.",
+        "Machine Thinker": "Pattern-seer and architect of plans under pressure.",
+        "Mirror Performer": "Adaptive front; you read rooms and shape outcomes.",
+      }[`${o.Creature} ${o.Role}`] || "Hybrid specialist tuned to your system’s current needs.";
+      const drive = {
+        "Love-Driven": "Love is your north star.",
+        "Logic-Driven": "Coherence and accuracy lead you.",
+        "Chaos-Driven": "You evolve through disruption.",
+        "Truth-Driven": "You choose reality over comfort.",
+        "Survival-Driven": "You endure first, then rebuild.",
+        "Balance-Driven": "You harmonize competing needs.",
+        "Rebellion-Driven": "You refuse harmful rules.",
+      }[o.Alignment] || "";
+      return `${id}\n\n${core} ${drive}`;
+    }
+
+    // ----------- UI -----------
+    function Slider({value,onChange}){
+      const ints = [1,2,3,4,5];
+      const label = ["Strongly Disagree","Disagree","Neutral","Agree","Strongly Agree"][value-1 || 2];
+      return (
+        <div className="mt-2">
+          <input type="range" min="1" max="5" step="1" value={value||3}
+                 onChange={e=>onChange(Number(e.target.value))} />
+          <div className="mt-1 flex justify-between text-xs text-neutral-500">
+            <span className="tick">SD</span><span className="tick">D</span><span className="tick">N</span><span className="tick">A</span><span className="tick">SA</span>
+          </div>
+          <div className="mt-1 text-xs opacity-70">{label}</div>
+        </div>
+      );
+    }
+
+    function App(){
+      const [data,setData]=usePersistentState({
+        alterName:"", consent:false, page:-1, answers:{}, show:false, submitting:false
+      });
+      const {alterName, consent, page, answers, show, submitting} = data;
+
+      const PHASES = ["Creature","Role","Alignment"];
+      const phase = page>=0 ? PHASES[page] : null;
+      const phaseItems = page>=0 ? phaseList(phase) : [];
+      const total = Q.length;
+      const answered = Object.keys(answers).length;
+      const completion = Math.round(answered/total*100);
+      const outcome = React.useMemo(()=> computeOutcome(answers), [answers]);
+      const resultText = React.useMemo(()=> blurbForOutcome(outcome), [outcome]);
+
+      const canStart = alterName.trim().length>0 && consent;
+
+      const setAnswer = (qid, val)=> setData(s=>({...s, answers:{...s.answers,[qid]:val}}));
+
+      const saveToNetlify = async ()=>{
+        const form = document.forms["quiz-submission"];
+        form.elements["alterName"].value = alterName;
+        form.elements["answersJson"].value = JSON.stringify(answers);
+        form.elements["outcomeJson"].value = JSON.stringify(outcome);
+        form.elements["userAgent"].value = navigator.userAgent || "";
+        form.elements["timestamp"].value = new Date().toISOString();
+        try{
+          setData(s=>({...s, submitting:true}));
+          await fetch("/", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" },
+            body: new URLSearchParams(new FormData(form)).toString() });
+          alert("Saved to Netlify Forms ✅");
+        }catch(e){
+          console.error(e);
+          alert("Save failed. Check connectivity or Netlify configuration.");
+        }finally{
+          setData(s=>({...s, submitting:false}));
+        }
+      };
+
+      return (
+        <div className="max-w-xl mx-auto pb-28">
+          {page===-1 && !show && (
+            <div className="p-6 space-y-5">
+              <h1 className="text-2xl font-bold">Wifey Alter-Type Quiz — 40Q Hybrid</h1>
+              <p className="text-sm text-neutral-700 dark:text-neutral-300">
+                This quiz builds a 3-part hybrid: <strong>Creature Essence</strong>, <strong>System Role</strong>, and <strong>Motivation Alignment</strong>. Some items are subtle scales, others are choices.
+              </p>
+              <label className="block">
+                <span className="text-sm text-neutral-700 dark:text-neutral-300">Alter name</span>
+                <input value={alterName} onChange={e=>setData(s=>({...s,alterName:e.target.value}))}
+                       className="mt-1 w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-200"
+                       placeholder="e.g., Frenchie, Bubbles, Subbles" />
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={consent} onChange={e=>setData(s=>({...s,consent:e.target.checked}))} />
+                <span className="text-sm text-neutral-700 dark:text-neutral-300">I consent to store my responses in Netlify (project-only).</span>
+              </label>
+              <button className="px-5 py-3 rounded-2xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 disabled:opacity-40"
+                      disabled={!canStart}
+                      onClick={()=>setData(s=>({...s,page:0}))}>Start quiz</button>
+            </div>
+          )}
+
+          {page>=0 && !show && (
+            <div className="no-print sticky top-0 z-20 bg-neutral-50/95 dark:bg-neutral-900/95 backdrop-blur border-b border-neutral-200 dark:border-neutral-800">
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold truncate">Alter: {alterName || "—"}</h2>
+                  <span className="text-sm text-neutral-600 dark:text-neutral-300">{completion}%</span>
+                </div>
+                <div className="h-2 bg-neutral-200 dark:bg-neutral-800 rounded-full mt-2">
+                  <div className="h-2 bg-neutral-900 dark:bg-neutral-100 rounded-full" style={{width:`${completion}%`}}></div>
+                </div>
+                <div className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
+                  Phase {page+1} of {PHASES.length}: <span className="font-medium">{phase}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {page>=0 && !show && (
+            <div className="p-4 space-y-4">
+              <h3 className="text-base font-semibold">{phase}: pick what fits or slide your truth</h3>
+              {phaseItems.map(item => (
+                <fieldset key={item.id} className="bg-white dark:bg-neutral-850 rounded-2xl shadow p-4 border border-neutral-200 dark:border-neutral-800">
+                  <legend className="mb-2">
+                    <div className="mt-1 text-base whitespace-normal break-words leading-snug">{item.prompt}</div>
+                  </legend>
+
+                  {item.type==="choice" ? (
+                    <div className="grid grid-cols-1 gap-2 mt-2">
+                      {item.options.map((opt, idx) => {
+                        const name=item.id; const id=`${name}-${idx}`;
+                        const selected = answers[name]===opt.to;
+                        return (
+                          <label key={id}
+                                 className={"w-full text-left px-3 py-3 rounded-2xl border text-sm select-none cursor-pointer whitespace-normal break-words "
+                                   + (selected? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 border-neutral-900 dark:border-neutral-100"
+                                              : "bg-white dark:bg-neutral-900 border-neutral-300 dark:border-neutral-700 hover:border-neutral-500 dark:hover:border-neutral-400 active:scale-[0.99]")}
+                                 onClick={()=>setAnswer(name,opt.to)}>
+                            <input id={id} name={name} type="radio" className="sr-only" value={opt.to} checked={selected||false}
+                                   onChange={()=>setAnswer(name,opt.to)} aria-label={`${opt.label}`} />
+                            <div className="font-medium">{opt.label}</div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-2">
+                      <Slider value={answers[item.id] ?? 3} onChange={(val)=>setAnswer(item.id, val)} />
+                    </div>
+                  )}
+                </fieldset>
+              ))}
+            </div>
+          )}
+
+          {page>=0 && !show && (
+            <div className="no-print fixed bottom-0 left-0 right-0 z-30">
+              <div className="safe-bottom bg-white/95 dark:bg-neutral-900/95 backdrop-blur border-t border-neutral-200 dark:border-neutral-800">
+                <div className="max-w-xl mx-auto px-4 py-3 flex gap-2">
+                  <button className="flex-1 px-4 py-3 rounded-2xl border border-neutral-300 dark:border-neutral-700 disabled:opacity-40"
+                          onClick={()=>setData(s=>({...s,page:s.page-1}))} disabled={page===0}>Back</button>
+                  {page < PHASES.length-1 ? (
+                    <button className="flex-1 px-4 py-3 rounded-2xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+                            onClick={()=>setData(s=>({...s,page:s.page+1}))}>Next</button>
+                  ) : (
+                    <button className="flex-1 px-4 py-3 rounded-2xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+                            onClick={()=>setData(s=>({...s,show:true}))}>View Results</button>
+                  )}
+                  <button className="px-4 py-3 rounded-2xl border border-neutral-300 dark:border-neutral-700"
+                          onClick={()=>setData({alterName:"",consent:false,page:-1,answers:{},show:false,submitting:false})}>Reset</button>
+                </div> 
+              </div>
+            </div>
+          )}
+
+          {show && (
+            <div className="p-4 space-y-6">
+              <section className="bg-white dark:bg-neutral-850 rounded-2xl shadow p-5 border border-neutral-200 dark:border-neutral-800">
+                <h2 className="text-xl font-semibold">Your Hybrid Result</h2>
+                <p className="text-sm text-neutral-600 dark:text-neutral-300 mt-1">Built from: Creature essence + System role + Motivation alignment.</p>
+                <div className="mt-3 space-y-2">
+                  <div className="text-lg font-bold">
+                    {outcome.Creature && outcome.Role && outcome.Alignment
+                      ? `${outcome.Creature} ${outcome.Role} — ${outcome.Alignment}`
+                      : "—"}
+                  </div>
+                  <pre className="whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">{resultText}</pre>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {Object.entries(outcome.counts || {}).map(([bucket, map])=>{
+                    const sum = Object.values(map).reduce((a,b)=>a+b,0) || 0;
+                    return (
+                      <div key={bucket} className="p-3 rounded-xl border border-neutral-200 dark:border-neutral-800">
+                        <div className="font-medium mb-1">{bucket} weights</div>
+                        <div className="space-y-1 text-xs">
+                          {Object.entries(map).sort((a,b)=>b[1]-a[1]).map(([opt,score])=>(
+                            <div key={opt} className="flex items-center justify-between gap-2">
+                              <span className="truncate">{opt}</span>
+                              <span className="opacity-70">{score.toFixed(2)}/{sum.toFixed(2)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="bg-white dark:bg-neutral-850 rounded-2xl shadow p-5 border border-neutral-200 dark:border-neutral-800">
+                <h2 className="text-xl font-semibold">Save Result</h2>
+                <p className="text-sm text-neutral-600 dark:text-neutral-300">Press save to store this submission to your Netlify site (hidden form).</p>
+                <div className="flex gap-2 mt-3">
+                  <button className={"px-4 py-3 rounded-2xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 " + (submitting? "opacity-60": "")}
+                          onClick={saveToNetlify} disabled={submitting}>
+                    {submitting ? "Saving..." : "Save to Netlify"}
+                  </button>
+                  <button className="px-4 py-3 rounded-2xl border border-neutral-300 dark:border-neutral-700"
+                          onClick={()=>window.print()}>Print / Save PDF</button>
+                  <button className="px-4 py-3 rounded-2xl border border-neutral-300 dark:border-neutral-700"
+                          onClick={()=>setData(s=>({...s,show:false,page:0}))}>Edit Answers</button>
+                </div>
+              </section>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
