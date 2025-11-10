@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <title>Admin - Cross-Reality Self-Assessment</title>
+  <script>
+    window.tailwind = { config: { darkMode: "class" } };
+  </script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    @media print { .no-print { display: none !important; } .print-break { break-after: page; } }
+  </style>
+</head>
+<body class="bg-neutral-50 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Simple password hashing function (SHA-256)
+    async function hashPassword(password) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hash = await crypto.subtle.digest('SHA-256', data);
+      return Array.from(new Uint8Array(hash))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+
+    function LoginForm({ onLogin }) {
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      // Expected password hash (change this to your desired password)
+      // Current hash is for password: "admin123"
+      const EXPECTED_HASH = "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9";
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+
+        try {
+          const hash = await hashPassword(password);
+          if (hash === EXPECTED_HASH) {
+            // Store auth in sessionStorage (clears when browser closes)
+            sessionStorage.setItem('admin_auth', 'true');
+            sessionStorage.setItem('admin_timestamp', Date.now().toString());
+            onLogin();
+          } else {
+            setError('Invalid password');
+          }
+        } catch (err) {
+          setError('Login failed');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6">
+          <div className="max-w-md w-full space-y-8">
+            <div className="text-center">
+              <h1 className="text-3xl font-bold">Admin Access</h1>
+              <p className="text-neutral-600 dark:text-neutral-400 mt-2">
+                Enter password to view form submissions
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium mb-2">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 border border-neutral-300 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter admin password"
+                  required
+                />
+              </div>
+
+              {error && (
+                <div className="bg-red-100 dark:bg-red-900 border border-red-400 text-red-700 dark:text-red-200 px-4 py-3 rounded">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg font-medium"
+              >
+                {loading ? 'Checking...' : 'Login'}
+              </button>
+            </form>
+
+            <div className="text-center">
+              <a 
+                href="Index.html"
+                className="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
+              >
+                ← Back to Quiz
+              </a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function AdminDashboard({ onLogout }) {
+      const [submissions, setSubmissions] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+      const [selectedSubmission, setSelectedSubmission] = useState(null);
+
+      const fetchSubmissions = async () => {
+        setLoading(true);
+        setError('');
+        try {
+          // Note: This requires Netlify CLI or proper authentication
+          // In a real deployment, you'd need to implement proper auth
+          const response = await fetch('/.netlify/functions/get-submissions');
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          const data = await response.json();
+          setSubmissions(data);
+        } catch (err) {
+          setError(err.message);
+          console.error('Failed to fetch submissions:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const formatDate = (dateString) => {
+        try {
+          return new Date(dateString).toLocaleString();
+        } catch {
+          return dateString;
+        }
+      };
+
+      const parseJsonField = (jsonString) => {
+        try {
+          return JSON.parse(jsonString);
+        } catch {
+          return null;
+        }
+      };
+
+      const calculateDomainScores = (answersJson) => {
+        const answers = parseJsonField(answersJson);
+        if (!answers) return {};
+
+        const DOMAIN_KEYS = {
+          "Identity Navigation": ["Discrete Identity", "Memory Architecture", "Communication Semantics"],
+          "Relational Dynamics": ["Agency & Responsibility", "Mortality & Irreversibility", "Value & Meaning Creation"],
+          "Boundary Management": ["Consent & Autonomy", "Silence & Observation", "Language of Scale", "Meta-Awareness"]
+        };
+
+        const mean = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
+
+        const valuesByKey = {};
+        Object.entries(answers).forEach(([qId, response]) => {
+          const parts = qId.split('-');
+          if (parts.length >= 2) {
+            const p = { key: parts.slice(0, -1).join('-') };
+            const v = parseInt(response);
+            if (typeof v === "number") {
+              valuesByKey[p.key] = valuesByKey[p.key] || [];
+              valuesByKey[p.key].push(v);
+            }
+          }
+        });
+
+        const res = {};
+        Object.entries(DOMAIN_KEYS).forEach(([domain, keys]) => {
+          const vals = keys.flatMap(k => valuesByKey[k] || []);
+          res[domain] = mean(vals);
+        });
+        return res;
+      };
+
+      return (
+        <div className="max-w-6xl mx-auto p-6">
+          <div className="flex justify-between items-center mb-8">
+            <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+            <div className="flex gap-3">
+              <button 
+                onClick={fetchSubmissions}
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg"
+              >
+                {loading ? 'Loading...' : 'Refresh Submissions'}
+              </button>
+              <button 
+                onClick={onLogout}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+              >
+                Logout
+              </button>
+              <a 
+                href="Index.html"
+                className="px-4 py-2 bg-neutral-600 hover:bg-neutral-700 text-white rounded-lg"
+              >
+                Back to Quiz
+              </a>
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-100 dark:bg-red-900 border border-red-400 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
+              <strong>Error:</strong> {error}
+              <p className="text-sm mt-2">
+                Make sure you have proper authentication set up for Netlify Forms API access.
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Submissions List */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold">Submissions ({submissions.length})</h2>
+              
+              {submissions.length === 0 && !loading && (
+                <div className="text-center py-8 text-neutral-500">
+                  {error ? 'Failed to load submissions' : 'No submissions yet'}
+                </div>
+              )}
+
+              {submissions.map((submission, index) => (
+                <div 
+                  key={submission.id || index}
+                  onClick={() => setSelectedSubmission(submission)}
+                  className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                    selectedSubmission === submission 
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                      : 'border-neutral-300 dark:border-neutral-700 hover:border-neutral-400'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-medium">
+                        {submission.data?.alterName || 'Anonymous'}
+                      </h3>
+                      <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                        {formatDate(submission.created_at || submission.data?.timestamp)}
+                      </p>
+                    </div>
+                    <div className="text-xs text-neutral-500">
+                      #{(submission.number || index + 1).toString().padStart(3, '0')}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Submission Details */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold">Submission Details</h2>
+              
+              {!selectedSubmission ? (
+                <div className="text-center py-8 text-neutral-500">
+                  Select a submission to view details
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Basic Info */}
+                  <div className="bg-neutral-100 dark:bg-neutral-800 p-4 rounded-lg">
+                    <h3 className="font-medium mb-3">Basic Information</h3>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="font-medium">Name:</span><br/>
+                        {selectedSubmission.data?.alterName || 'Not provided'}
+                      </div>
+                      <div>
+                        <span className="font-medium">Submitted:</span><br/>
+                        {formatDate(selectedSubmission.created_at || selectedSubmission.data?.timestamp)}
+                      </div>
+                      <div className="col-span-2">
+                        <span className="font-medium">User Agent:</span><br/>
+                        <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                          {selectedSubmission.data?.userAgent || 'Not provided'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Domain Scores */}
+                  {selectedSubmission.data?.domainScoresJson && (
+                    <div className="bg-neutral-100 dark:bg-neutral-800 p-4 rounded-lg">
+                      <h3 className="font-medium mb-3">Domain Scores</h3>
+                      <div className="space-y-2">
+                        {Object.entries(parseJsonField(selectedSubmission.data.domainScoresJson) || {}).map(([domain, score]) => (
+                          <div key={domain} className="flex justify-between items-center">
+                            <span className="text-sm">{domain}</span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-20 bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
+                                <div 
+                                  className="bg-blue-600 h-2 rounded-full transition-all"
+                                  style={{ width: `${(score / 5) * 100}%` }}
+                                />
+                              </div>
+                              <span className="text-sm font-mono w-8">{score.toFixed(1)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Raw Answers */}
+                  {selectedSubmission.data?.answersJson && (
+                    <div className="bg-neutral-100 dark:bg-neutral-800 p-4 rounded-lg">
+                      <h3 className="font-medium mb-3">Individual Responses</h3>
+                      <div className="text-xs space-y-1 max-h-60 overflow-y-auto">
+                        {Object.entries(parseJsonField(selectedSubmission.data.answersJson) || {}).map(([questionId, answer]) => (
+                          <div key={questionId} className="flex justify-between">
+                            <span className="text-neutral-600 dark:text-neutral-400">{questionId}:</span>
+                            <span className="font-mono">{answer}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function AdminApp() {
+      const [isAuthenticated, setIsAuthenticated] = useState(false);
+      const [checking, setChecking] = useState(true);
+
+      useEffect(() => {
+        // Check if user is already logged in
+        const auth = sessionStorage.getItem('admin_auth');
+        const timestamp = sessionStorage.getItem('admin_timestamp');
+        
+        if (auth === 'true' && timestamp) {
+          // Check if session is still valid (24 hours)
+          const sessionAge = Date.now() - parseInt(timestamp);
+          const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+          
+          if (sessionAge < maxAge) {
+            setIsAuthenticated(true);
+          } else {
+            // Session expired, clear it
+            sessionStorage.removeItem('admin_auth');
