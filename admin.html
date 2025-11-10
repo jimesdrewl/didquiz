@@ -22,96 +22,268 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // Simple password hashing function (SHA-256)
-    async function hashPassword(password) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(password);
-      const hash = await crypto.subtle.digest('SHA-256', data);
-      return Array.from(new Uint8Array(hash))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-    }
-
+      const [submissions, setSubmissions] = useState([]);
+      const [loading, setLoading] = useState(false);
     function LoginForm({ onLogin }) {
       const [password, setPassword] = useState('');
       const [error, setError] = useState('');
+      const [selectedSubmission, setSelectedSubmission] = useState(null);
       const [loading, setLoading] = useState(false);
 
-      // Expected password hash (change this to your desired password)
-      // Current hash is for password: "admin123"
-      const EXPECTED_HASH = "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9";
-
-      const handleSubmit = async (e) => {
+      const fetchSubmissions = async () => {
+      const handleSubmit = (e) => {
         e.preventDefault();
         setLoading(true);
         setError('');
-
         try {
-          const hash = await hashPassword(password);
-          if (hash === EXPECTED_HASH) {
-            // Store auth in sessionStorage (clears when browser closes)
+          // Note: This requires Netlify CLI or proper authentication
+          // In a real deployment, you'd need to implement proper auth
+          const response = await fetch('/.netlify/functions/get-submissions');
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          const data = await response.json();
+          setSubmissions(data);
+        } catch (err) {
+          setError(err.message);
+          console.error('Failed to fetch submissions:', err);
+        } finally {
+
+        // Simple password check - in production, use proper authentication
+        const correctPassword = 'admin123'; // This should be environment-specific
+        
+        setTimeout(() => {
+          if (password === correctPassword) {
             sessionStorage.setItem('admin_auth', 'true');
             sessionStorage.setItem('admin_timestamp', Date.now().toString());
             onLogin();
           } else {
             setError('Invalid password');
           }
-        } catch (err) {
-          setError('Login failed');
-        } finally {
           setLoading(false);
+        }
+        }, 500);
+      };
+
+      const formatDate = (dateString) => {
+        try {
+          return new Date(dateString).toLocaleString();
+        } catch {
+          return dateString;
         }
       };
 
+      const parseJsonField = (jsonString) => {
+        try {
+          return JSON.parse(jsonString);
+        } catch {
+          return null;
+        }
+      };
+
+      const calculateDomainScores = (answersJson) => {
+        const answers = parseJsonField(answersJson);
+        if (!answers) return {};
+
+        const DOMAIN_KEYS = {
+          "Identity Navigation": ["Discrete Identity", "Memory Architecture", "Communication Semantics"],
+          "Relational Dynamics": ["Agency & Responsibility", "Mortality & Irreversibility", "Value & Meaning Creation"],
+          "Boundary Management": ["Consent & Autonomy", "Silence & Observation", "Language of Scale", "Meta-Awareness"]
+        };
+
+        const mean = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
+
+        const valuesByKey = {};
+        Object.entries(answers).forEach(([qId, response]) => {
+          const parts = qId.split('-');
+          if (parts.length >= 2) {
+            const p = { key: parts.slice(0, -1).join('-') };
+            const v = parseInt(response);
+            if (typeof v === "number") {
+              valuesByKey[p.key] = valuesByKey[p.key] || [];
+              valuesByKey[p.key].push(v);
+            }
+          }
+        });
+
+        const res = {};
+        Object.entries(DOMAIN_KEYS).forEach(([domain, keys]) => {
+          const vals = keys.flatMap(k => valuesByKey[k] || []);
+          res[domain] = mean(vals);
+        });
+        return res;
+      };
+
       return (
-        <div className="min-h-screen flex items-center justify-center p-6">
-          <div className="max-w-md w-full space-y-8">
-            <div className="text-center">
-              <h1 className="text-3xl font-bold">Admin Access</h1>
-              <p className="text-neutral-600 dark:text-neutral-400 mt-2">
-                Enter password to view form submissions
+        <div className="max-w-6xl mx-auto p-6">
+          <div className="flex justify-between items-center mb-8">
+            <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+            <div className="flex gap-3">
+              <button
+                onClick={fetchSubmissions}
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg"
+              >
+                {loading ? 'Loading...' : 'Refresh Submissions'}
+              </button>
+              <a
+                href="Index.html"
+                className="px-4 py-2 bg-neutral-600 hover:bg-neutral-700 text-white rounded-lg"
+              >
+                Back to Quiz
+              </a>
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-100 dark:bg-red-900 border border-red-400 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-6">
+              <strong>Error:</strong> {error}
+              <p className="text-sm mt-2">
+                Make sure you have proper authentication set up for Netlify Forms API access.
               </p>
             </div>
+          )}
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium mb-2">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 border border-neutral-300 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter admin password"
-                  required
-                />
-              </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Submissions List */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold">Submissions ({submissions.length})</h2>
 
-              {error && (
-                <div className="bg-red-100 dark:bg-red-900 border border-red-400 text-red-700 dark:text-red-200 px-4 py-3 rounded">
-                  {error}
+              {submissions.length === 0 && !loading && (
+                <div className="text-center py-8 text-neutral-500">
+                  {error ? 'Failed to load submissions' : 'No submissions yet'}
                 </div>
               )}
 
+              {submissions.map((submission, index) => (
+                <div
+                  key={submission.id || index}
+                  onClick={() => setSelectedSubmission(submission)}
+                  className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                    selectedSubmission === submission
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-neutral-300 dark:border-neutral-700 hover:border-neutral-400'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-medium">
+                        {submission.data?.alterName || 'Anonymous'}
+                      </h3>
+                      <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                        {formatDate(submission.created_at || submission.data?.timestamp)}
+                      </p>
+                    </div>
+                    <div className="text-xs text-neutral-500">
+                      #{(submission.number || index + 1).toString().padStart(3, '0')}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Submission Details */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold">Submission Details</h2>
+
+              {!selectedSubmission ? (
+                <div className="text-center py-8 text-neutral-500">
+                  Select a submission to view details
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Basic Info */}
+                  <div className="bg-neutral-100 dark:bg-neutral-800 p-4 rounded-lg">
+                    <h3 className="font-medium mb-3">Basic Information</h3>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="font-medium">Name:</span><br/>
+                        {selectedSubmission.data?.alterName || 'Not provided'}
+                      </div>
+                      <div>
+                        <span className="font-medium">Submitted:</span><br/>
+                        {formatDate(selectedSubmission.created_at || selectedSubmission.data?.timestamp)}
+                      </div>
+                      <div className="col-span-2">
+                        <span className="font-medium">User Agent:</span><br/>
+                        <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                          {selectedSubmission.data?.userAgent || 'Not provided'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Domain Scores */}
+                  {selectedSubmission.data?.domainScoresJson && (
+                    <div className="bg-neutral-100 dark:bg-neutral-800 p-4 rounded-lg">
+                      <h3 className="font-medium mb-3">Domain Scores</h3>
+                      <div className="space-y-2">
+                        {Object.entries(parseJsonField(selectedSubmission.data.domainScoresJson) || {}).map(([domain, score]) => (
+                          <div key={domain} className="flex justify-between items-center">
+                            <span className="text-sm">{domain}</span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-20 bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
+                                <div
+                                  className="bg-blue-600 h-2 rounded-full transition-all"
+                                  style={{ width: `${(score / 5) * 100}%` }}
+                                />
+                              </div>
+                              <span className="text-sm font-mono w-8">{score.toFixed(1)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Raw Answers */}
+                  {selectedSubmission.data?.answersJson && (
+                    <div className="bg-neutral-100 dark:bg-neutral-800 p-4 rounded-lg">
+                      <h3 className="font-medium mb-3">Individual Responses</h3>
+                      <div className="text-xs space-y-1 max-h-60 overflow-y-auto">
+                        {Object.entries(parseJsonField(selectedSubmission.data.answersJson) || {}).map(([questionId, answer]) => (
+                          <div key={questionId} className="flex justify-between">
+                            <span className="text-neutral-600 dark:text-neutral-400">{questionId}:</span>
+                            <span className="font-mono">{answer}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      return (
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="bg-white dark:bg-neutral-800 p-8 rounded-lg shadow-lg w-full max-w-md">
+            <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
+            <form onSubmit={handleSubmit}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-700"
+                  required
+                />
+              </div>
+              {error && (
+                <div className="mb-4 text-red-600 dark:text-red-400 text-sm">
+                  {error}
+                </div>
+              )}
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg font-medium"
+                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg"
               >
-                {loading ? 'Checking...' : 'Login'}
+                {loading ? 'Authenticating...' : 'Login'}
               </button>
             </form>
-
-            <div className="text-center">
-              <a 
-                href="Index.html"
-                className="text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
-              >
-                ← Back to Quiz
-              </a>
-            </div>
           </div>
         </div>
       );
@@ -197,6 +369,7 @@
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-3xl font-bold">Admin Dashboard</h1>
             <div className="flex gap-3">
+              <button
               <button 
                 onClick={fetchSubmissions}
                 disabled={loading}
@@ -204,18 +377,20 @@
               >
                 {loading ? 'Loading...' : 'Refresh Submissions'}
               </button>
-              <button 
-                onClick={onLogout}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
-              >
-                Logout
-              </button>
+              <a
               <a 
                 href="Index.html"
                 className="px-4 py-2 bg-neutral-600 hover:bg-neutral-700 text-white rounded-lg"
               >
                 Back to Quiz
               </a>
+              <button
+              <button 
+                onClick={onLogout}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+              >
+                Logout
+              </button>
             </div>
           </div>
 
@@ -240,10 +415,13 @@
               )}
 
               {submissions.map((submission, index) => (
+                <div
                 <div 
                   key={submission.id || index}
                   onClick={() => setSelectedSubmission(submission)}
                   className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                    selectedSubmission === submission
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                     selectedSubmission === submission 
                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
                       : 'border-neutral-300 dark:border-neutral-700 hover:border-neutral-400'
@@ -307,6 +485,7 @@
                             <span className="text-sm">{domain}</span>
                             <div className="flex items-center gap-2">
                               <div className="w-20 bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
+                                <div
                                 <div 
                                   className="bg-blue-600 h-2 rounded-full transition-all"
                                   style={{ width: `${(score / 5) * 100}%` }}
@@ -361,9 +540,42 @@
           } else {
             // Session expired, clear it
             sessionStorage.removeItem('admin_auth');
+            sessionStorage.removeItem('admin_timestamp');
           }
         }
+        setChecking(false);
+      }, []);
+
+      const handleLogin = () => {
+        setIsAuthenticated(true);
+      };
+
+      const handleLogout = () => {
+        sessionStorage.removeItem('admin_auth');
+        sessionStorage.removeItem('admin_timestamp');
+        setIsAuthenticated(false);
+      };
+
+      if (checking) {
+        return (
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="mt-4 text-neutral-600 dark:text-neutral-400">Checking authentication...</p>
+            </div>
+          </div>
+        );
+      }
+
+      return isAuthenticated ? (
+        <AdminDashboard onLogout={handleLogout} />
+      ) : (
+        <LoginForm onLogin={handleLogin} />
+      );
     }
 
-
-    
+    ReactDOM.createRoot(document.getElementById("root")).render(<AdminApp/>);
+    ReactDOM.render(<AdminApp />, document.getElementById('root'));
+  </script>
+</body>
+</html>
